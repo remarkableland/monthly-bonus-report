@@ -218,7 +218,7 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     # Create PDF in LANDSCAPE orientation with narrower margins
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(letter),  # 11" x 8.5" landscape
+        pagesize=landscape(letter),
         rightMargin=0.3*inch,
         leftMargin=0.3*inch,
         topMargin=0.3*inch,
@@ -256,12 +256,12 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     elements.append(Paragraph("Remarkable Land® Bonus Schedule", title_style))
     elements.append(Paragraph(f"Month Ending: {month_ending_date.strftime('%B %d, %Y')}", subtitle_style))
     
-    # Calculate column totals
-    total_gross_sales = sum(processed_df['Gross Sales Price'])
-    total_closing_costs = sum(processed_df['Closing Costs'])
-    total_cash_to_seller = sum(processed_df['Cash to Seller'])
-    total_asset_cost = sum(processed_df['Asset Cost'])
-    total_gross_profit = sum(processed_df['Gross Profit'])
+    # Calculate column totals from numeric data
+    total_gross_sales = processed_df['Gross Sales Price'].sum()
+    total_closing_costs = processed_df['Closing Costs'].sum()
+    total_cash_to_seller = processed_df['Cash to Seller'].sum()
+    total_asset_cost = processed_df['Asset Cost'].sum()
+    total_gross_profit = processed_df['Gross Profit'].sum()
     
     # Prepare table data
     table_data = []
@@ -280,17 +280,29 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     headers = [Paragraph(str(col), header_style) for col in processed_df.columns]
     table_data.append(headers)
     
-    # Data rows
+    # Data rows - format currency for display
     for _, row in processed_df.iterrows():
-        table_data.append(list(row))
+        formatted_row = [
+            row['Funding Date'],
+            row['State'],
+            row['County'],
+            row['Grantor'],
+            row['APN'],
+            format_currency(row['Gross Sales Price']),
+            format_currency(row['Closing Costs']),
+            format_currency(row['Cash to Seller']),
+            format_currency(row['Asset Cost']),
+            format_currency(row['Gross Profit'])
+        ]
+        table_data.append(formatted_row)
     
     # Add column totals row
     totals_row = [
-        'TOTALS',  # Funding Date column
-        '',  # State
-        '',  # County
-        '',  # Grantor
-        '',  # APN
+        'TOTALS',
+        '',
+        '',
+        '',
+        '',
         format_currency(total_gross_sales),
         format_currency(total_closing_costs),
         format_currency(total_cash_to_seller),
@@ -571,9 +583,9 @@ if uploaded_file is not None:
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                # PDF Export with signatures
+                # PDF Export with signatures - PASS UNFORMATTED DATA
                 pdf_data = export_to_pdf(
-                    display_df.copy(),
+                    processed_df.copy(),  # Pass unformatted numeric data
                     month_ending,
                     format_currency(subtotal),
                     format_currency(prior_adjustment),
