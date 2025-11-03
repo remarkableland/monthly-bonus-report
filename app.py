@@ -30,10 +30,6 @@ team_members = st.sidebar.text_area(
 )
 team_list = [name.strip() for name in team_members.split('\n') if name.strip()]
 
-# Additional Costs Configuration
-st.sidebar.subheader("Standard Costs")
-mls_cost = st.sidebar.number_input("MLS Cost", value=500, min_value=0)
-
 # Prior Adjustment
 prior_adjustment = st.sidebar.number_input(
     "Prior Adjustment Amount", 
@@ -94,6 +90,7 @@ def process_close_export(df, month_ending_date):
     for _, row in df_filtered.iterrows():
         # Extract data from available fields
         funding_date = pd.to_datetime(row['custom.Asset_Date_Sold']).strftime('%m/%d/%y') if pd.notna(row['custom.Asset_Date_Sold']) else ''
+        funding_date_sort = pd.to_datetime(row['custom.Asset_Date_Sold']) if pd.notna(row['custom.Asset_Date_Sold']) else pd.Timestamp('1900-01-01')
         state = row['custom.All_State'] if pd.notna(row['custom.All_State']) else ''
         county = extract_county_from_display_name(row['display_name'])
         grantor = extract_grantor_from_display_name(row['display_name'])
@@ -104,14 +101,15 @@ def process_close_export(df, month_ending_date):
         closing_costs = float(row['custom.Asset_Closing_Costs']) if pd.notna(row['custom.Asset_Closing_Costs']) else 0.0
         cost_basis = float(row['custom.Asset_Cost_Basis']) if pd.notna(row['custom.Asset_Cost_Basis']) else 0.0
         
-        # Calculate derived values
-        reductions = closing_costs  # Using closing costs as "reductions"
+        # Calculate derived values (no MLS cost added)
+        reductions = closing_costs
         cash_to_seller = contract_price - reductions
-        asset_cost = cost_basis + mls_cost  # Add MLS cost to cost basis
+        asset_cost = cost_basis  # No MLS cost adjustment
         gross_profit = cash_to_seller - asset_cost
         
         results.append({
             'Funding Date': funding_date,
+            'Funding Date Sort': funding_date_sort,
             'State': state,
             'County': county,
             'Grantor': grantor,
@@ -123,7 +121,15 @@ def process_close_export(df, month_ending_date):
             'Gross Profit': gross_profit
         })
     
-    return pd.DataFrame(results)
+    df_result = pd.DataFrame(results)
+    
+    # Sort by date ascending
+    df_result = df_result.sort_values('Funding Date Sort', ascending=True)
+    
+    # Remove the sort column before returning
+    df_result = df_result.drop('Funding Date Sort', axis=1)
+    
+    return df_result
 
 def format_currency(value):
     """Format number as currency"""
@@ -250,6 +256,13 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     elements.append(Paragraph("Remarkable Land® Bonus Schedule", title_style))
     elements.append(Paragraph(f"Month Ending: {month_ending_date.strftime('%B %d, %Y')}", subtitle_style))
     
+    # Calculate column totals
+    total_gross_sales = sum(processed_df['Gross Sales Price'])
+    total_closing_costs = sum(processed_df['Closing Costs'])
+    total_cash_to_seller = sum(processed_df['Cash to Seller'])
+    total_asset_cost = sum(processed_df['Asset Cost'])
+    total_gross_profit = sum(processed_df['Gross Profit'])
+    
     # Prepare table data
     table_data = []
     
@@ -271,10 +284,25 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     for _, row in processed_df.iterrows():
         table_data.append(list(row))
     
+    # Add column totals row
+    totals_row = [
+        'TOTALS',  # Funding Date column
+        '',  # State
+        '',  # County
+        '',  # Grantor
+        '',  # APN
+        format_currency(total_gross_sales),
+        format_currency(total_closing_costs),
+        format_currency(total_cash_to_seller),
+        format_currency(total_asset_cost),
+        format_currency(total_gross_profit)
+    ]
+    table_data.append(totals_row)
+    
     # Add empty row for spacing
     table_data.append([''] * len(headers))
     
-    # Add totals rows
+    # Add summary totals rows
     empty_cols = [''] * (len(headers) - 2)
     table_data.append(empty_cols + ['SUBTOTAL:', subtotal])
     table_data.append(empty_cols + ['PRIOR ADJUSTMENT:', prior_adj])
@@ -282,13 +310,12 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     table_data.append(empty_cols + ['Properties Sold:', str(len(processed_df))])
     
     # Create table with adjusted column widths for landscape
-    # Total width available: ~10.4 inches (11" - 0.6" margins)
     col_widths = [
         0.75*inch,  # Funding Date
-        0.5*inch,   # State (widened to prevent "State" from wrapping)
+        0.5*inch,   # State
         0.85*inch,  # County
         1.0*inch,   # Grantor
-        2.0*inch,   # APN (widened significantly)
+        2.0*inch,   # APN
         1.15*inch,  # Gross Sales Price
         0.8*inch,   # Closing Costs
         1.15*inch,  # Cash to Seller
@@ -297,6 +324,10 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     ]
     
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    
+    # Calculate row indices for styling
+    data_end_row = len(processed_df) + 1  # +1 for header row
+    totals_row_idx = data_end_row  # Column totals row
     
     # Table style
     table.setStyle(TableStyle([
@@ -308,26 +339,33 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
         ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
         ('TOPPADDING', (0, 0), (-1, 0), 8),
-        ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),  # Vertical align for wrapped headers
+        ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
         
         # Data rows
-        ('FONTNAME', (0, 1), (-1, -5), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -5), 8),
-        ('ALIGN', (0, 1), (4, -5), 'LEFT'),
-        ('ALIGN', (5, 1), (-1, -5), 'RIGHT'),
-        ('GRID', (0, 0), (-1, -5), 0.5, colors.grey),
+        ('FONTNAME', (0, 1), (-1, totals_row_idx-1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, totals_row_idx-1), 8),
+        ('ALIGN', (0, 1), (4, totals_row_idx-1), 'LEFT'),
+        ('ALIGN', (5, 1), (-1, totals_row_idx-1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, totals_row_idx), 0.5, colors.grey),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 1), (-1, -5), 4),
-        ('BOTTOMPADDING', (0, 1), (-1, -5), 4),
+        ('TOPPADDING', (0, 1), (-1, totals_row_idx-1), 4),
+        ('BOTTOMPADDING', (0, 1), (-1, totals_row_idx-1), 4),
         
-        # Alternate row colors
-        ('ROWBACKGROUNDS', (0, 1), (-1, -5), [colors.white, colors.HexColor('#f0f0f0')]),
+        # Alternate row colors (data rows only)
+        ('ROWBACKGROUNDS', (0, 1), (-1, totals_row_idx-1), [colors.white, colors.HexColor('#f0f0f0')]),
         
-        # Totals rows (bold and right-aligned) - now includes 4 rows
-        ('FONTNAME', (0, -4), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, -4), (-1, -1), 10),
-        ('ALIGN', (0, -4), (-1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, -4), (-1, -4), 1.5, colors.black),
+        # Column totals row styling
+        ('FONTNAME', (0, totals_row_idx), (-1, totals_row_idx), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, totals_row_idx), (-1, totals_row_idx), 9),
+        ('ALIGN', (0, totals_row_idx), (-1, totals_row_idx), 'RIGHT'),
+        ('LINEABOVE', (0, totals_row_idx), (-1, totals_row_idx), 1.5, colors.black),
+        ('BACKGROUND', (0, totals_row_idx), (-1, totals_row_idx), colors.HexColor('#e8e8e8')),
+        
+        # Summary totals rows (bold and right-aligned)
+        ('FONTNAME', (0, totals_row_idx+2), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, totals_row_idx+2), (-1, -1), 10),
+        ('ALIGN', (0, totals_row_idx+2), (-1, -1), 'RIGHT'),
+        ('LINEABOVE', (0, totals_row_idx+2), (-1, totals_row_idx+2), 1.5, colors.black),
         ('LINEBELOW', (0, -1), (-1, -1), 2, colors.black),
     ]))
     
@@ -388,7 +426,7 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
             if i * 2 < len(team_members):
                 name = team_members[i * 2]
                 row.append(f"{name}")
-                row.append("_" * 35)  # Longer signature line for landscape
+                row.append("_" * 35)
             else:
                 row.append("")
                 row.append("")
@@ -400,14 +438,13 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
             if i * 2 + 1 < len(team_members):
                 name = team_members[i * 2 + 1]
                 row.append(f"{name}")
-                row.append("_" * 35)  # Longer signature line for landscape
+                row.append("_" * 35)
             else:
                 row.append("")
                 row.append("")
             
             sig_data.append(row)
         
-        # Wider signature areas for landscape
         sig_table = Table(sig_data, colWidths=[1.8*inch, 2.5*inch, 0.4*inch, 1.8*inch, 2.5*inch])
         sig_table.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
@@ -427,58 +464,6 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     doc.build(elements)
     buffer.seek(0)
     return buffer
-    """Export bonus schedule to Excel with formatting"""
-    output = io.BytesIO()
-    
-    # Create Excel writer
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Write main data
-        processed_df.to_excel(writer, sheet_name='Bonus Schedule', index=False, startrow=2)
-        
-        # Get workbook and worksheet
-        workbook = writer.book
-        worksheet = writer.sheets['Bonus Schedule']
-        
-        # Add header
-        worksheet['A1'] = f'Remarkable Land® Bonus Schedule'
-        worksheet['A2'] = f'Month Ending: {month_ending_date.strftime("%m/%d/%Y")}'
-        
-        # Add totals
-        last_row = len(processed_df) + 4
-        worksheet[f'I{last_row}'] = 'SUBTOTAL'
-        worksheet[f'J{last_row}'] = subtotal
-        
-        worksheet[f'I{last_row+1}'] = 'PRIOR ADJUSTMENT'
-        worksheet[f'J{last_row+1}'] = prior_adj
-        
-        worksheet[f'I{last_row+2}'] = 'TOTAL'
-        worksheet[f'J{last_row+2}'] = total
-        
-        # Bold the header
-        from openpyxl.styles import Font, Alignment
-        worksheet['A1'].font = Font(bold=True, size=14)
-        worksheet['A2'].font = Font(bold=True)
-        
-        # Bold totals
-        for row_num in [last_row, last_row+1, last_row+2]:
-            worksheet[f'I{row_num}'].font = Font(bold=True)
-            worksheet[f'J{row_num}'].font = Font(bold=True)
-        
-        # Adjust column widths
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
-    
-    output.seek(0)
-    return output
 
 # Main Processing
 if uploaded_file is not None:
@@ -526,8 +511,25 @@ if uploaded_file is not None:
                 hide_index=True
             )
             
-            # Add totals row
+            # Add column totals row
             st.markdown("---")
+            col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1.5, 1.2, 1.2])
+            with col1:
+                st.markdown("**COLUMN TOTALS:**")
+            with col2:
+                st.markdown(f"**Gross Sales:** {format_currency(processed_df['Gross Sales Price'].sum())}")
+            with col3:
+                st.markdown(f"**Closing Costs:** {format_currency(processed_df['Closing Costs'].sum())}")
+            with col4:
+                st.markdown(f"**Cash to Seller:** {format_currency(processed_df['Cash to Seller'].sum())}")
+            with col5:
+                st.markdown(f"**Asset Cost:** {format_currency(processed_df['Asset Cost'].sum())}")
+            with col6:
+                st.markdown(f"**Gross Profit:** {format_currency(processed_df['Gross Profit'].sum())}")
+            
+            st.markdown("---")
+            
+            # Add summary totals
             col1, col2, col3 = st.columns([2, 1, 1])
             with col2:
                 st.markdown("**SUBTOTAL:**")
@@ -593,7 +595,7 @@ if uploaded_file is not None:
                     st.info("📦 Install reportlab for PDF export: `pip install reportlab`")
             
             with col2:
-                # Excel Export - use formatted display version
+                # Excel Export
                 excel_data = export_to_excel(
                     display_df.copy(), 
                     month_ending, 
@@ -612,7 +614,7 @@ if uploaded_file is not None:
                 )
             
             with col3:
-                # CSV Export - use formatted display version
+                # CSV Export
                 csv = display_df.to_csv(index=False)
                 csv_filename = f"{month_ending.strftime('%Y%m%d')}_Remarkable_Land_Bonus_Schedule.csv"
                 
@@ -655,10 +657,12 @@ else:
     
     ### 💡 Tips:
     - The app automatically filters for properties sold in the selected month
-    - Asset Cost = Cost Basis + $500 (MLS) + Direct Expenses
+    - Asset Cost = Cost Basis (no additional costs added)
     - Gross Profit = Cash to Seller - Asset Cost
     - All currency values are formatted automatically
     - **PDF includes signature lines** for all team members
+    - PDF table is sorted by date (oldest first)
+    - Column totals provided for all financial columns
     """)
     
     # Sample data structure
@@ -680,7 +684,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-    Built for Remarkable Land® | Bonus Schedule Generator v1.0
+    Built for Remarkable Land® | Bonus Schedule Generator v1.1
     </div>
     """,
     unsafe_allow_html=True
