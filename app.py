@@ -84,7 +84,7 @@ def process_close_export(df, month_ending_date):
         'custom.Asset_Date_Sold': ['custom.Asset_Date_Sold', 'Asset Date Sold', 'Asset_Date_Sold', 'custom.Asset Date Sold'],
         'custom.All_State': ['custom.All_State', 'All State', 'All_State', 'custom.All State'],
         'custom.All_APN': ['custom.All_APN', 'All APN', 'All_APN', 'custom.All APN'],
-        'custom.Asset_Gross_Sales_Price': ['custom.Asset_Gross_Sales_Price', 'Asset Gross Sales Price', 'Asset_Gross_Sales_Price', 'custom.Asset Gross Sales Price'],
+        'custom.Asset_Gross_Sales_Price': ['custom.Gross Amount to Seller', 'Gross Amount to Seller', 'custom.Gross_Amount_to_Seller', 'custom.Asset_Gross_Sales_Price', 'Asset Gross Sales Price', 'Asset_Gross_Sales_Price', 'custom.Asset Gross Sales Price'],
         'custom.Asset_Closing_Costs': ['custom.Asset_Closing_Costs', 'Asset Closing Costs', 'Asset_Closing_Costs', 'custom.Asset Closing Costs'],
         'custom.Asset_Cost_Basis': ['custom.Asset_Cost_Basis', 'Asset Cost Basis', 'Asset_Cost_Basis', 'custom.Asset Cost Basis'],
         'display_name': ['display_name', 'Display Name'],
@@ -724,7 +724,7 @@ else:
         - `custom.Asset_Date_Sold` - Funding date
         - `custom.All_State` - Property state
         - `custom.All_APN` - Property APN
-        - `custom.Asset_Gross_Sales_Price` - Contract price
+        - `custom.Gross Amount to Seller` - Contract price
         - `custom.Asset_Closing_Costs` - Reductions/costs
         - `custom.Asset_Cost_Basis` - Original cost basis
         - `display_name` - Property name (contains county and grantor)
