@@ -63,11 +63,46 @@ def extract_grantor_from_display_name(display_name):
         return parts[2]  # Third word is typically the grantor
     return "Unknown"
 
+def find_column(df, candidates):
+    """Find the first matching column name from a list of candidates (case-insensitive)"""
+    df_cols_lower = {col.lower(): col for col in df.columns}
+    for candidate in candidates:
+        if candidate in df.columns:
+            return candidate
+        if candidate.lower() in df_cols_lower:
+            return df_cols_lower[candidate.lower()]
+    return None
+
 def process_close_export(df, month_ending_date):
     """Process Close.com export and extract relevant fields"""
-    
+
+    # Map expected field names to possible column name variants
+    col_map = {}
+    field_candidates = {
+        'primary_opportunity_date_won': ['primary_opportunity_date_won', 'Opportunity Date Won'],
+        'primary_opportunity_status_label': ['primary_opportunity_status_label', 'Opportunity Status Label', 'primary_opportunity_status'],
+        'custom.Asset_Date_Sold': ['custom.Asset_Date_Sold', 'Asset Date Sold', 'Asset_Date_Sold', 'custom.Asset Date Sold'],
+        'custom.All_State': ['custom.All_State', 'All State', 'All_State', 'custom.All State'],
+        'custom.All_APN': ['custom.All_APN', 'All APN', 'All_APN', 'custom.All APN'],
+        'custom.Asset_Gross_Sales_Price': ['custom.Asset_Gross_Sales_Price', 'Asset Gross Sales Price', 'Asset_Gross_Sales_Price', 'custom.Asset Gross Sales Price'],
+        'custom.Asset_Closing_Costs': ['custom.Asset_Closing_Costs', 'Asset Closing Costs', 'Asset_Closing_Costs', 'custom.Asset Closing Costs'],
+        'custom.Asset_Cost_Basis': ['custom.Asset_Cost_Basis', 'Asset Cost Basis', 'Asset_Cost_Basis', 'custom.Asset Cost Basis'],
+        'display_name': ['display_name', 'Display Name'],
+    }
+
+    missing_cols = []
+    for key, candidates in field_candidates.items():
+        found = find_column(df, candidates)
+        if found:
+            col_map[key] = found
+        else:
+            missing_cols.append(key)
+
+    if missing_cols:
+        raise KeyError(f"Could not find columns: {', '.join(missing_cols)}. Available columns: {', '.join(df.columns.tolist())}")
+
     # Filter for sold properties in the specified month
-    df['primary_opportunity_date_won'] = pd.to_datetime(df['primary_opportunity_date_won'], errors='coerce')
+    df['primary_opportunity_date_won'] = pd.to_datetime(df[col_map['primary_opportunity_date_won']], errors='coerce')
     
     # Filter by month and year
     month_start = pd.Timestamp(month_ending_date.replace(day=1))
@@ -77,9 +112,9 @@ def process_close_export(df, month_ending_date):
         month_end = pd.Timestamp(month_ending_date.replace(month=month_ending_date.month + 1, day=1))
     
     df_filtered = df[
-        (df['primary_opportunity_date_won'] >= month_start) & 
+        (df['primary_opportunity_date_won'] >= month_start) &
         (df['primary_opportunity_date_won'] < month_end) &
-        (df['primary_opportunity_status_label'] == 'Sold')
+        (df[col_map['primary_opportunity_status_label']] == 'Sold')
     ].copy()
     
     if len(df_filtered) == 0:
@@ -88,18 +123,22 @@ def process_close_export(df, month_ending_date):
     # Extract required fields
     results = []
     for _, row in df_filtered.iterrows():
-        # Extract data from available fields
-        funding_date = pd.to_datetime(row['custom.Asset_Date_Sold']).strftime('%m/%d/%y') if pd.notna(row['custom.Asset_Date_Sold']) else ''
-        funding_date_sort = pd.to_datetime(row['custom.Asset_Date_Sold']) if pd.notna(row['custom.Asset_Date_Sold']) else pd.Timestamp('1900-01-01')
-        state = row['custom.All_State'] if pd.notna(row['custom.All_State']) else ''
-        county = extract_county_from_display_name(row['display_name'])
-        grantor = extract_grantor_from_display_name(row['display_name'])
-        apn = row['custom.All_APN'] if pd.notna(row['custom.All_APN']) else ''
-        
+        # Extract data from available fields using mapped column names
+        date_sold_val = row[col_map['custom.Asset_Date_Sold']]
+        funding_date = pd.to_datetime(date_sold_val).strftime('%m/%d/%y') if pd.notna(date_sold_val) else ''
+        funding_date_sort = pd.to_datetime(date_sold_val) if pd.notna(date_sold_val) else pd.Timestamp('1900-01-01')
+        state = row[col_map['custom.All_State']] if pd.notna(row[col_map['custom.All_State']]) else ''
+        county = extract_county_from_display_name(row[col_map['display_name']])
+        grantor = extract_grantor_from_display_name(row[col_map['display_name']])
+        apn = row[col_map['custom.All_APN']] if pd.notna(row[col_map['custom.All_APN']]) else ''
+
         # Financial data
-        contract_price = float(row['custom.Asset_Gross_Sales_Price']) if pd.notna(row['custom.Asset_Gross_Sales_Price']) else 0.0
-        closing_costs = float(row['custom.Asset_Closing_Costs']) if pd.notna(row['custom.Asset_Closing_Costs']) else 0.0
-        cost_basis = float(row['custom.Asset_Cost_Basis']) if pd.notna(row['custom.Asset_Cost_Basis']) else 0.0
+        gsp_val = row[col_map['custom.Asset_Gross_Sales_Price']]
+        cc_val = row[col_map['custom.Asset_Closing_Costs']]
+        cb_val = row[col_map['custom.Asset_Cost_Basis']]
+        contract_price = float(gsp_val) if pd.notna(gsp_val) else 0.0
+        closing_costs = float(cc_val) if pd.notna(cc_val) else 0.0
+        cost_basis = float(cb_val) if pd.notna(cb_val) else 0.0
         
         # Calculate derived values (no MLS cost added)
         reductions = closing_costs
