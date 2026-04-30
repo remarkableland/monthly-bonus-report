@@ -704,7 +704,7 @@ else:
     
     4. **Circulate for Electronic Signature**
     
-    5. **Email the Signed Report to accounting@glo.land**
+    5. **Email the Signed Report to Accounting**
     
     ### 💡 Tips:
     - The app automatically filters for properties sold in the selected month
