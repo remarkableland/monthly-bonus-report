@@ -735,7 +735,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center; color: gray;'>
-    Built for Remarkable Land® | Bonus Schedule Generator v1.2
+    Bonus Schedule Generator v1.2
     </div>
     """,
     unsafe_allow_html=True
