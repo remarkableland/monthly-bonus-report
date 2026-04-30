@@ -579,9 +579,17 @@ if uploaded_file is not None:
             
             # Display the bonus schedule
             st.header("💰 Bonus Schedule Details")
-            
+
+            # Screen-only copy: flag outlier GP% rows with a warning emoji.
+            # Keep `display_df` clean so Excel/CSV exports don't carry the emoji.
+            screen_df = display_df.copy()
+            screen_df['Gross Profit %'] = [
+                f"⚠️ {formatted}" if (pct > 0.5 or pct < 0) else formatted
+                for pct, formatted in zip(processed_df['Gross Profit %'], display_df['Gross Profit %'])
+            ]
+
             st.dataframe(
-                display_df,
+                screen_df,
                 use_container_width=True,
                 hide_index=True
             )
