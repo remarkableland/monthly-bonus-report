@@ -32,9 +32,10 @@ team_list = [name.strip() for name in team_members.split('\n') if name.strip()]
 
 # Prior Adjustment
 prior_adjustment = st.sidebar.number_input(
-    "Prior Adjustment Amount", 
-    value=0.00,
-    format="%.2f",
+    "Prior Adjustment Amount",
+    value=0,
+    step=1,
+    format="%d",
     help="Adjustments from previous bonus schedules"
 )
 
@@ -136,10 +137,10 @@ def process_close_export(df, month_ending_date):
         gsp_val = row[col_map['custom.Asset_Gross_Sales_Price']]
         cc_val = row[col_map['custom.Asset_Closing_Costs']]
         cb_val = row[col_map['custom.Asset_Cost_Basis']]
-        contract_price = float(gsp_val) if pd.notna(gsp_val) else 0.0
-        closing_costs = float(cc_val) if pd.notna(cc_val) else 0.0
-        cost_basis = float(cb_val) if pd.notna(cb_val) else 0.0
-        
+        contract_price = round(float(gsp_val)) if pd.notna(gsp_val) else 0
+        closing_costs = round(float(cc_val)) if pd.notna(cc_val) else 0
+        cost_basis = round(float(cb_val)) if pd.notna(cb_val) else 0
+
         # Calculate derived values (no MLS cost added)
         reductions = closing_costs
         cash_to_seller = contract_price - reductions
@@ -172,7 +173,7 @@ def process_close_export(df, month_ending_date):
 
 def format_currency(value):
     """Format number as currency"""
-    return f"${value:,.2f}"
+    return f"${round(value):,}"
 
 def create_bonus_schedule_dataframe(processed_df):
     """Create formatted bonus schedule dataframe"""
@@ -182,7 +183,7 @@ def create_bonus_schedule_dataframe(processed_df):
     # Format currency columns - handle both numeric and string values
     currency_columns = ['Gross Sales Price', 'Closing Costs', 'Cash to Seller', 'Asset Cost', 'Gross Profit']
     for col in currency_columns:
-        display_df[col] = display_df[col].apply(lambda x: format_currency(float(x)) if pd.notna(x) else "$0.00")
+        display_df[col] = display_df[col].apply(lambda x: format_currency(float(x)) if pd.notna(x) else "$0")
     
     return display_df
 
