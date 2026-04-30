@@ -25,7 +25,7 @@ month_ending = st.sidebar.date_input(
 st.sidebar.subheader("Team Members")
 team_members = st.sidebar.text_area(
     "Enter team member names (one per line)",
-    value="Brandi Freeman\nLauren Forbis\nIrina Morozova\nRobert O. Dow",
+    value="BF\nLF\nIM\nRD",
     height=150
 )
 team_list = [name.strip() for name in team_members.split('\n') if name.strip()]
