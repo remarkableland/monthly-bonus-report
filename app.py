@@ -9,7 +9,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 Remarkable Land Bonus Schedule Generator")
+st.title("💰 Bonus Schedule Generator")
 st.markdown("Generate bonus schedules from Close.com export data")
 
 # Configuration Section
