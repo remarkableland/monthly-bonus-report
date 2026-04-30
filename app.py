@@ -146,7 +146,8 @@ def process_close_export(df, month_ending_date):
         cash_to_seller = contract_price - reductions
         asset_cost = cost_basis  # No MLS cost adjustment
         gross_profit = cash_to_seller - asset_cost
-        
+        gross_profit_pct = gross_profit / contract_price if contract_price else 0
+
         results.append({
             'Funding Date': funding_date,
             'Funding Date Sort': funding_date_sort,
@@ -158,7 +159,8 @@ def process_close_export(df, month_ending_date):
             'Closing Costs': reductions,
             'Cash to Seller': cash_to_seller,
             'Asset Cost': asset_cost,
-            'Gross Profit': gross_profit
+            'Gross Profit': gross_profit,
+            'Gross Profit %': gross_profit_pct
         })
     
     df_result = pd.DataFrame(results)
@@ -175,16 +177,25 @@ def format_currency(value):
     """Format number as currency"""
     return f"${round(value):,}"
 
+def format_percentage(value):
+    """Format number as percentage with one decimal place"""
+    return f"{value * 100:.1f}%"
+
 def create_bonus_schedule_dataframe(processed_df):
     """Create formatted bonus schedule dataframe"""
     # Create a copy to avoid modifying original
     display_df = processed_df.copy()
-    
+
     # Format currency columns - handle both numeric and string values
     currency_columns = ['Gross Sales Price', 'Closing Costs', 'Cash to Seller', 'Asset Cost', 'Gross Profit']
     for col in currency_columns:
         display_df[col] = display_df[col].apply(lambda x: format_currency(float(x)) if pd.notna(x) else "$0")
-    
+
+    if 'Gross Profit %' in display_df.columns:
+        display_df['Gross Profit %'] = display_df['Gross Profit %'].apply(
+            lambda x: format_percentage(float(x)) if pd.notna(x) else "0.0%"
+        )
+
     return display_df
 
 def export_to_excel(processed_df, month_ending_date, subtotal, prior_adj, total):
@@ -204,26 +215,34 @@ def export_to_excel(processed_df, month_ending_date, subtotal, prior_adj, total)
         worksheet['A1'] = f'Remarkable Land® Bonus Schedule'
         worksheet['A2'] = f'Month Ending: {month_ending_date.strftime("%m/%d/%Y")}'
         
-        # Add totals
-        last_row = len(processed_df) + 4
-        worksheet[f'I{last_row}'] = 'SUBTOTAL'
-        worksheet[f'J{last_row}'] = subtotal
-        
-        worksheet[f'I{last_row+1}'] = 'PRIOR ADJUSTMENT'
-        worksheet[f'J{last_row+1}'] = prior_adj
-        
-        worksheet[f'I{last_row+2}'] = 'TOTAL'
-        worksheet[f'J{last_row+2}'] = total
-        
-        # Bold the header
+        # Add totals — place label/value in the last two data columns
+        from openpyxl.utils import get_column_letter
         from openpyxl.styles import Font, Alignment
+        last_row = len(processed_df) + 4
+        label_col = get_column_letter(len(processed_df.columns) - 1)
+        value_col = get_column_letter(len(processed_df.columns))
+        worksheet[f'{label_col}{last_row}'] = 'SUBTOTAL'
+        worksheet[f'{value_col}{last_row}'] = subtotal
+
+        worksheet[f'{label_col}{last_row+1}'] = 'PRIOR ADJUSTMENT'
+        worksheet[f'{value_col}{last_row+1}'] = prior_adj
+
+        worksheet[f'{label_col}{last_row+2}'] = 'TOTAL'
+        worksheet[f'{value_col}{last_row+2}'] = total
+
+        # Bold the header
         worksheet['A1'].font = Font(bold=True, size=14)
         worksheet['A2'].font = Font(bold=True)
-        
+
         # Bold totals
         for row_num in [last_row, last_row+1, last_row+2]:
-            worksheet[f'I{row_num}'].font = Font(bold=True)
-            worksheet[f'J{row_num}'].font = Font(bold=True)
+            worksheet[f'{label_col}{row_num}'].font = Font(bold=True)
+            worksheet[f'{value_col}{row_num}'].font = Font(bold=True)
+
+        # Format Gross Profit % column as percentage
+        gp_pct_col = get_column_letter(len(processed_df.columns))
+        for row_num in range(4, len(processed_df) + 4):
+            worksheet[f'{gp_pct_col}{row_num}'].number_format = '0.0%'
         
         # Adjust column widths
         for column in worksheet.columns:
@@ -302,6 +321,7 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     total_cash_to_seller = processed_df['Cash to Seller'].sum()
     total_asset_cost = processed_df['Asset Cost'].sum()
     total_gross_profit = processed_df['Gross Profit'].sum()
+    total_gross_profit_pct = total_gross_profit / total_gross_sales if total_gross_sales else 0
     
     # Prepare table data
     table_data = []
@@ -332,10 +352,11 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
             format_currency(row['Closing Costs']),
             format_currency(row['Cash to Seller']),
             format_currency(row['Asset Cost']),
-            format_currency(row['Gross Profit'])
+            format_currency(row['Gross Profit']),
+            format_percentage(row['Gross Profit %'])
         ]
         table_data.append(formatted_row)
-    
+
     # Add column totals row
     totals_row = [
         'TOTALS',
@@ -347,7 +368,8 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
         format_currency(total_closing_costs),
         format_currency(total_cash_to_seller),
         format_currency(total_asset_cost),
-        format_currency(total_gross_profit)
+        format_currency(total_gross_profit),
+        format_percentage(total_gross_profit_pct)
     ]
     table_data.append(totals_row)
     
@@ -363,16 +385,17 @@ def export_to_pdf(processed_df, month_ending_date, subtotal, prior_adj, total, t
     
     # Create table with adjusted column widths for landscape
     col_widths = [
-        0.75*inch,  # Funding Date
-        0.5*inch,   # State
-        0.85*inch,  # County
-        1.0*inch,   # Grantor
-        2.0*inch,   # APN
-        1.15*inch,  # Gross Sales Price
-        0.8*inch,   # Closing Costs
-        1.15*inch,  # Cash to Seller
-        0.95*inch,  # Asset Cost
-        0.95*inch   # Gross Profit
+        0.7*inch,   # Funding Date
+        0.4*inch,   # State
+        0.75*inch,  # County
+        0.9*inch,   # Grantor
+        1.7*inch,   # APN
+        1.05*inch,  # Gross Sales Price
+        0.75*inch,  # Closing Costs
+        1.05*inch,  # Cash to Seller
+        0.9*inch,   # Asset Cost
+        0.9*inch,   # Gross Profit
+        0.6*inch    # Gross Profit %
     ]
     
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -565,11 +588,14 @@ if uploaded_file is not None:
             
             # Add column totals row
             st.markdown("---")
-            col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1.5, 1.2, 1.2])
+            total_gross_sales_ui = processed_df['Gross Sales Price'].sum()
+            total_gross_profit_ui = processed_df['Gross Profit'].sum()
+            total_gp_pct_ui = total_gross_profit_ui / total_gross_sales_ui if total_gross_sales_ui else 0
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 1, 1, 1.4, 1.1, 1.1, 0.9])
             with col1:
                 st.markdown("**COLUMN TOTALS:**")
             with col2:
-                st.markdown(f"**Gross Sales:** {format_currency(processed_df['Gross Sales Price'].sum())}")
+                st.markdown(f"**Gross Sales:** {format_currency(total_gross_sales_ui)}")
             with col3:
                 st.markdown(f"**Closing Costs:** {format_currency(processed_df['Closing Costs'].sum())}")
             with col4:
@@ -577,7 +603,9 @@ if uploaded_file is not None:
             with col5:
                 st.markdown(f"**Asset Cost:** {format_currency(processed_df['Asset Cost'].sum())}")
             with col6:
-                st.markdown(f"**Gross Profit:** {format_currency(processed_df['Gross Profit'].sum())}")
+                st.markdown(f"**Gross Profit:** {format_currency(total_gross_profit_ui)}")
+            with col7:
+                st.markdown(f"**GP %:** {format_percentage(total_gp_pct_ui)}")
             
             st.markdown("---")
             
